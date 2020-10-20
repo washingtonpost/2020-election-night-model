@@ -1,0 +1,4 @@
+scripts/
+data/all_results.csv
+.DS_Store
+src/.Rhistory
