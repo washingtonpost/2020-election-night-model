@@ -4,7 +4,7 @@ This is The Washington Post's general election night model. The model was create
 
 ## Model
 
-The model uses quantile regression for point prediction and quantile regression + conformal prediction to generate prediction intervals. You can read about the methods employed [here](https://elex-models-prod.s3.amazonaws.com/2020-general/write-up/election_model_writeup.pdf): 
+The model uses quantile regression for point prediction and quantile regression + conformal prediction to generate prediction intervals. You can read about the methods employed [here](https://elex-models-prod.s3.amazonaws.com/2020-general/write-up/election_model_writeup.pdf) or for a less technical read see [here](https://washpost.engineering/2020/10/22/how-the-washington-post-estimates-outstanding-votes-for-the-2020-presidential-election/). 
 
 ## Data
 
