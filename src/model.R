@@ -27,7 +27,7 @@ get_unit_predictions = function(observed_data_features, unobserved_data_features
 }
 
 # this computes conformal prediction intervals. we only get marginal (not conditional prediction interval).
-get_county_prediction_intervals = function(observed_data_features, unobserved_data_features, alpha, model_settings, fixed_effects) {
+get_unit_prediction_intervals = function(observed_data_features, unobserved_data_features, alpha, model_settings, fixed_effects) {
   n_fixed_effects = length(fixed_effects)
   
   # we need the contraint rows to be in t_data. so I remove them from observed_data_features
@@ -73,9 +73,9 @@ get_county_prediction_intervals = function(observed_data_features, unobserved_da
   # to get there we need to add the correction, which is equal to alpha * (1 + 1/nrow(c_data))
   correction = quantile(scores, probs=c(alpha * (1 + 1/nrow(c_data))))
   
-  # we care about larger counties more than smaller counties when computing state
+  # we care about larger units more than units counties when computing state
   # prediction intervals. to accomplish this, we will weight the i-th score by the 
-  # number of voters in that county in the previous election 
+  # number of voters in that unit in the previous election 
   weights = c_data$total_voters / sum(c_data$total_voters)
   pop_corr = as_tibble(cbind(scores, weights)) %>% arrange(scores) %>% 
     mutate(perc = cumsum(weights)) %>% filter(perc > alpha * (1 + 1/nrow(c_data)))
@@ -100,28 +100,18 @@ get_observed_votes_aggregate = function(observed_data, observed_unexpected_data,
     group_by(.dots=aggregate) %>%
     summarize(observed_data_votes=sum(results), .groups='drop')
   
-  aggregate_votes = NULL
-  # since we don't know the county category or congressional district (??) of unexpected counties
-  # we can't add them back in. So we only add unexpected data if aggregate is postal_code.
-  # unfortunately r is bad, and this is the best way to check this?
-  if (length(aggregate) == 1) {
-    observed_unexpected_data_known_votes = observed_unexpected_data %>%
-      group_by(.dots=aggregate) %>%
-      summarize(observed_unexpected_data_votes=sum(results), .groups='drop')
-    
-    # the full join here makes sure that if entire congressional districts or county categories
-    # are unexpectedly present, we will capture them. This is also why we need to replace_NA with zero
-    # NA here means that there were no such counties, so they contribute zero votes.
-    aggregate_votes = observed_data_known_votes %>%
-      full_join(observed_unexpected_data_known_votes, by=aggregate) %>%
-      replace_na(list(observed_data_votes=0, observed_unexpected_data_votes=0)) %>%
-      mutate(results=observed_data_votes + observed_unexpected_data_votes) %>%
-      select(all_of(c(aggregate, 'results')))
-  } else {
-    aggregate_votes = observed_data_known_votes %>%
-      mutate(results=observed_data_votes) %>%
-      select(all_of(c(aggregate, 'results')))
-  }
+  observed_unexpected_data_known_votes = observed_unexpected_data %>%
+    group_by(.dots=aggregate) %>%
+    summarize(observed_unexpected_data_votes=sum(results), .groups='drop')
+  
+  # the full join here makes sure that if entire congressional districts or county categories
+  # are unexpectedly present, we will capture them. This is also why we need to replace_NA with zero
+  # NA here means that there were no such counties, so they contribute zero votes.
+  aggregate_votes = observed_data_known_votes %>%
+    full_join(observed_unexpected_data_known_votes, by=aggregate) %>%
+    replace_na(list(observed_data_votes=0, observed_unexpected_data_votes=0)) %>%
+    mutate(results=observed_data_votes + observed_unexpected_data_votes) %>%
+    select(all_of(c(aggregate, 'results')))
   return(aggregate_votes)
 }
 
@@ -178,7 +168,7 @@ estimate = function(current_data, model_settings=list(fixed_effects=c(), robust=
   # joining current results to preprocessed data. This is a left_join on the preprocessed data, that means
   # if we didn't expect the county, we drop it. This is because we don't have any covariates for it.
   # we solve this by using observed_unexpected_data below, which we then add into state, cd, county category totals
-  data = preprocessed_data %>% left_join(current_data, by=c("postal_code", "geographic_unit_fips"))
+  data = preprocessed_data %>% left_join(current_data, by=c("postal_code", "geographic_unit_fips", "county_fips"))
   
   observed_data = data %>%
     filter(precincts_reporting_pct >= 100) %>%   # these are the counties that we have observed
@@ -195,7 +185,7 @@ estimate = function(current_data, model_settings=list(fixed_effects=c(), robust=
     filter(!geographic_unit_fips %in% preprocessed_data$geographic_unit_fips)
   
   # extract features for observed and unobserved counties specifically
-  features_to_remove = c("postal_code","geographic_unit_name", "geographic_unit_fips", "last_election_results", "results", "precincts_reporting_pct")
+  features_to_remove = c("postal_code","geographic_unit_name", "geographic_unit_fips", "county_fips", "last_election_results", "results", "precincts_reporting_pct")
   features_to_remove = setdiff(features_to_remove, fixed_effects) # we want to keep the feature if we want a fixed effect for it
   
   observed_data_features = observed_data %>% 
@@ -261,13 +251,13 @@ estimate = function(current_data, model_settings=list(fixed_effects=c(), robust=
     unit_prediction_intervals = get_unit_prediction_intervals(observed_data_features, unobserved_data_features, alpha, model_settings, fixed_effects)
     observed_data[lower_string] = observed_data$results
     observed_data[upper_string] = observed_data$results
-    unobserved_data[lower_string] = pmax(county_prediction_intervals$lower + unobserved_data$last_election_results, unobserved_data$results)
-    unobserved_data[upper_string] = pmax(county_prediction_intervals$upper + unobserved_data$last_election_results, unobserved_data$results)
+    unobserved_data[lower_string] = pmax(unit_prediction_intervals$lower + unobserved_data$last_election_results, unobserved_data$results)
+    unobserved_data[upper_string] = pmax(unit_prediction_intervals$upper + unobserved_data$last_election_results, unobserved_data$results)
     observed_unexpected_data[lower_string] = observed_unexpected_data$results
     observed_unexpected_data[upper_string] = observed_unexpected_data$results
     
     if (geographic_unit_type == 'precinct') {
-      county_prediction_intervals = get_aggregate_prediction_intervals(observed_data, unobserved_data, observed_unexpected_data, c('postal_code', 'county_fips'))
+      county_prediction_intervals = get_aggregate_prediction_intervals(observed_data, unobserved_data, observed_unexpected_data, c('postal_code', 'county_fips'), lower_string, upper_string)
       county_data[lower_string] = county_prediction_intervals$lower
       county_data[upper_string] = county_prediction_intervals$upper
     }
@@ -283,7 +273,7 @@ estimate = function(current_data, model_settings=list(fixed_effects=c(), robust=
     arrange(geographic_unit_fips) %>%
     select(postal_code, geographic_unit_fips, pred, starts_with('lower'), starts_with('upper'))
   
-  to_return = list(county_data=county_data, state_data=state_data)
+  to_return = list(unit_data=unit_data, state_data=state_data)
   
   if (geographic_unit_type == 'precinct') {
     to_return[['county_data']] = county_data
