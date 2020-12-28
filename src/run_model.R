@@ -35,7 +35,7 @@ for (i in seq(20, nrow(data_shuffled), 50)) {
   data_shuffled_unobserved = data_shuffled[(i+1):nrow(data_shuffled),] %>% mutate(precincts_reporting_pct=0, results=0)
   data_shuffled_i = data_shuffled_observed %>% rbind(data_shuffled_unobserved)
   
-  prediction = estimate(data_shuffled_i, model_settings, )
+  prediction = estimate(data_shuffled_i, model_settings, geographic_unit_type = 'precinct')
   
   state_mae = MAE(prediction$state_data$pred, state_results$results)
   state_mape = MAPE(prediction$state_data$pred, state_results$results)
