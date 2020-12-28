@@ -11,7 +11,7 @@ fit_quantile_reg_model = function(data, tau, weights) {
   return(reg)
 }
 
-get_county_predictions = function(observed_data_features, unobserved_data_features, model_settings) {
+get_unit_predictions = function(observed_data_features, unobserved_data_features, model_settings) {
   method = model_settings$method
   
   weights = observed_data_features$total_voters
@@ -26,8 +26,8 @@ get_county_predictions = function(observed_data_features, unobserved_data_featur
   return(preds)
 }
 
-# this computes conformal confidence intervals. we only get marginal (not conditional confidence interval).
-get_county_confidence_intervals = function(observed_data_features, unobserved_data_features, alpha, model_settings, fixed_effects) {
+# this computes conformal prediction intervals. we only get marginal (not conditional prediction interval).
+get_county_prediction_intervals = function(observed_data_features, unobserved_data_features, alpha, model_settings, fixed_effects) {
   n_fixed_effects = length(fixed_effects)
   
   # we need the contraint rows to be in t_data. so I remove them from observed_data_features
@@ -63,7 +63,7 @@ get_county_confidence_intervals = function(observed_data_features, unobserved_da
   qr_bounds = predict(reg_bounds, unobserved_data_features)
   
   # c_bounds is guess for upper and lower bounds
-  # c_ub and c_lb how much we miss are outside of confidence intervals
+  # c_ub and c_lb how much we miss are outside of prediction intervals
   c_ub = c_data$residuals - c_bounds[,2]
   c_lb = c_bounds[,1] - c_data$residuals
   scores = pmax(c_lb, c_ub) # this is e_j
@@ -148,19 +148,19 @@ get_aggregate_predictions = function(observed_data, unobserved_data, observed_un
   return(aggregate_data)
 }
 
-# this function produces aggregate confidence intervals for state, cd, county category level
-get_aggregate_confidence_intervals = function(observed_data, unobserved_data, observed_unexpected_data, aggregate, lower_string, upper_string) {
+# this function produces aggregate prediction intervals for state, cd, county category level
+get_aggregate_prediction_intervals = function(observed_data, unobserved_data, observed_unexpected_data, aggregate, lower_string, upper_string) {
   
   aggregate_votes = get_observed_votes_aggregate(observed_data, observed_unexpected_data, aggregate)
   
-  # confidence intervals just sum, kinda miraculous
-  aggregate_confidence_intervals = unobserved_data %>%
+  # prediction intervals just sum, kinda miraculous
+  aggregate_prediction_intervals = unobserved_data %>%
     group_by(.dots=aggregate) %>%
     summarize(predicted_lower=sum(!!sym(lower_string)), predicted_upper=sum(!!sym(upper_string)), .groups='drop')
   # since lower and upper string are always just strings, we can use !!sym(x) instead of !!!syms(x) as with aggregate
   
   aggregate_data = aggregate_votes %>%
-    full_join(aggregate_confidence_intervals, by=aggregate) %>%
+    full_join(aggregate_prediction_intervals, by=aggregate) %>%
     replace_na(list(results=0, predicted_lower=0, predicted_upper=0)) %>%
     mutate(lower=predicted_lower + results, upper=predicted_upper + results) %>%
     arrange(!!!syms(aggregate)) %>%
@@ -169,11 +169,11 @@ get_aggregate_confidence_intervals = function(observed_data, unobserved_data, ob
   return(aggregate_data)
 }
 
-estimate = function(current_data, model_settings=list(fixed_effects=c(), robust=FALSE), confidence_intervals=c(0.8)) {
+estimate = function(current_data, model_settings=list(fixed_effects=c(), robust=FALSE), prediction_intervals=c(0.8), geographic_unit_type='county') {
   fixed_effects = model_settings$fixed_effects
   
   preprocessed_data = get_preprocessed_data() %>%
-    select(postal_code, geographic_unit_fips, last_election_results, total_voters)
+    select(postal_code, geographic_unit_fips, county_fips, last_election_results, total_voters)
   
   # joining current results to preprocessed data. This is a left_join on the preprocessed data, that means
   # if we didn't expect the county, we drop it. This is because we don't have any covariates for it.
@@ -240,37 +240,54 @@ estimate = function(current_data, model_settings=list(fixed_effects=c(), robust=
   # for unobserved counties prediction is the estimated residual between the last and current election. So we 
   # add in the last election result to get our estimate for current election result. We max that with the results
   # we've seen so far to make sure the counted vote isn't more than the prediction.
-  county_predictions = get_county_predictions(observed_data_features, unobserved_data_features, model_settings)
+  unit_predictions = get_unit_predictions(observed_data_features, unobserved_data_features, model_settings)
   observed_data['pred'] = observed_data$results
-  unobserved_data['pred'] = pmax(county_predictions + unobserved_data$last_election_results, unobserved_data$results)
+  unobserved_data['pred'] = pmax(unit_predictions + unobserved_data$last_election_results, unobserved_data$results)
   observed_unexpected_data['pred'] = observed_unexpected_data$results
   
+  # if we are doing precinct level model, we also want county predictions
+  if (geographic_unit_type == 'precinct') {
+    county_data = get_aggregate_predictions(observed_data, unobserved_data, observed_unexpected_data, c('postal_code', 'county_fips'))
+  }
+
   # get aggregate predictions for state
   state_data = get_aggregate_predictions(observed_data, unobserved_data, observed_unexpected_data, 'postal_code')
-
-  # for observed counties, lower and upper confidence intervals are predictions
-  for (alpha in confidence_intervals) {
+  
+  # for observed counties, lower and upper prediction intervals are predictions
+  for (alpha in prediction_intervals) {
     lower_string = paste('lower', alpha, sep='_')
     upper_string = paste('upper', alpha, sep='_')
     
-    county_confidence_intervals = get_county_confidence_intervals(observed_data_features, unobserved_data_features, alpha, model_settings, fixed_effects)
+    unit_prediction_intervals = get_unit_prediction_intervals(observed_data_features, unobserved_data_features, alpha, model_settings, fixed_effects)
     observed_data[lower_string] = observed_data$results
     observed_data[upper_string] = observed_data$results
-    unobserved_data[lower_string] = pmax(county_confidence_intervals$lower + unobserved_data$last_election_results, unobserved_data$results)
-    unobserved_data[upper_string] = pmax(county_confidence_intervals$upper + unobserved_data$last_election_results, unobserved_data$results)
+    unobserved_data[lower_string] = pmax(county_prediction_intervals$lower + unobserved_data$last_election_results, unobserved_data$results)
+    unobserved_data[upper_string] = pmax(county_prediction_intervals$upper + unobserved_data$last_election_results, unobserved_data$results)
     observed_unexpected_data[lower_string] = observed_unexpected_data$results
     observed_unexpected_data[upper_string] = observed_unexpected_data$results
     
-    state_confidence_intervals = get_aggregate_confidence_intervals(observed_data, unobserved_data, observed_unexpected_data, 'postal_code', lower_string, upper_string)
-    state_data[lower_string] = state_confidence_intervals$lower
-    state_data[upper_string] = state_confidence_intervals$upper
+    if (geographic_unit_type == 'precinct') {
+      county_prediction_intervals = get_aggregate_prediction_intervals(observed_data, unobserved_data, observed_unexpected_data, c('postal_code', 'county_fips'))
+      county_data[lower_string] = county_prediction_intervals$lower
+      county_data[upper_string] = county_prediction_intervals$upper
+    }
+    
+    state_prediction_intervals = get_aggregate_prediction_intervals(observed_data, unobserved_data, observed_unexpected_data, 'postal_code', lower_string, upper_string)
+    state_data[lower_string] = state_prediction_intervals$lower
+    state_data[upper_string] = state_prediction_intervals$upper
   }
   
-  county_data = observed_data %>%
+  unit_data = observed_data %>%
     bind_rows(unobserved_data) %>%
     bind_rows(observed_unexpected_data) %>%
     arrange(geographic_unit_fips) %>%
     select(postal_code, geographic_unit_fips, pred, starts_with('lower'), starts_with('upper'))
   
-  return(list(county_data=county_data, state_data=state_data))
+  to_return = list(county_data=county_data, state_data=state_data)
+  
+  if (geographic_unit_type == 'precinct') {
+    to_return[['county_data']] = county_data
+  }
+  
+  return(to_return)
 }
