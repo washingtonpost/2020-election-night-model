@@ -7,7 +7,7 @@ library(tibble)
 source('utilities.R')
 
 fit_quantile_reg_model = function(data, tau, weights) {
-  reg = rq(residuals ~ . -1 - total_voters, data=data, tau=tau, weights=weights)
+  reg = rq(residuals ~ . - 1 - total_voters, data=data, tau=tau, weights=weights)
   return(reg)
 }
 
@@ -162,7 +162,7 @@ get_aggregate_prediction_intervals = function(observed_data, unobserved_data, ob
 estimate = function(current_data, model_settings=list(fixed_effects=c(), robust=FALSE), prediction_intervals=c(0.8), geographic_unit_type='county') {
   fixed_effects = model_settings$fixed_effects
   
-  preprocessed_data = get_preprocessed_data() %>%
+  preprocessed_data = get_preprocessed_data(geographic_unit_type) %>%
     select(postal_code, geographic_unit_fips, county_fips, last_election_results, total_voters)
   
   # joining current results to preprocessed data. This is a left_join on the preprocessed data, that means

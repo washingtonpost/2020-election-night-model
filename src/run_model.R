@@ -5,13 +5,16 @@ library(gridExtra)
 
 source('model.R')
 
-data = read_csv('../data/turnout_2016.csv')
+geographic_unit_type = 'precinct'
+year = '2020'
+
+data = read_csv(sprintf('../data/%s_turnout_%s.csv', geographic_unit_type, year))
 
 state_results = data %>% 
   group_by(postal_code) %>% 
   summarize(results=sum(results), .groups='drop')
 
-initial_pred = read_csv('../data/turnout_2012.csv') %>%
+initial_pred = read_csv(sprintf('../data/%s_turnout_baseline.csv', geographic_unit_type)) %>%
   group_by(postal_code) %>%
   summarize(results=sum(results), .groups='drop')
 
@@ -25,7 +28,7 @@ set.seed(42)
 shuffle = sample(nrow(data))
 data_shuffled = data[shuffle,]
 
-fixed_effects = c("postal_code")
+fixed_effects = c()
 robust = FALSE
 model_settings = list(fixed_effects=fixed_effects, robust=robust)
 
@@ -35,7 +38,7 @@ for (i in seq(20, nrow(data_shuffled), 50)) {
   data_shuffled_unobserved = data_shuffled[(i+1):nrow(data_shuffled),] %>% mutate(precincts_reporting_pct=0, results=0)
   data_shuffled_i = data_shuffled_observed %>% rbind(data_shuffled_unobserved)
   
-  prediction = estimate(data_shuffled_i, model_settings, geographic_unit_type = 'precinct')
+  prediction = estimate(data_shuffled_i, model_settings, geographic_unit_type=geographic_unit_type)
   
   state_mae = MAE(prediction$state_data$pred, state_results$results)
   state_mape = MAPE(prediction$state_data$pred, state_results$results)
