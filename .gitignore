@@ -1,4 +1,6 @@
 scripts/
 data/all_results.csv
+data/precinct_turnout_2020.csv
+data/precinct_turnout_baseline.csv
 .DS_Store
 src/.Rhistory
