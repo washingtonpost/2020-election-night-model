@@ -104,7 +104,7 @@ get_unit_prediction_intervals = function(observed_data, unobserved_data, alpha, 
   
   shuffle = sample(nrow(observed_data)) # shuffle to create training and conformal set
   observed_data_shuffled = observed_data[shuffle,]
-  conf_frac = min(1 - (alpha / 0.05) / nrow(observed_data_shuffled), 0.9) # fraction for conformal is at least 10%
+  conf_frac = conf_frac = min(1 + (alpha + 1) / (nrow(observed_data_shuffled) * (alpha - 1)), 0.7) # fraction for conformal is at least 30%
   t_rows = floor(nrow(observed_data_shuffled) * conf_frac)
   t_data = observed_data_shuffled[1:t_rows,] # first t_rows are training set
   
